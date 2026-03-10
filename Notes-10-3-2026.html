@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>3D HTML Shooter</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: sans-serif;
+      color: #fff;
+    }
+
+    #ui {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    #editor {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 10;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      width: 220px;
+    }
+
+    #editor input {
+      width: 60px;
+      margin-bottom: 4px;
+      background: #111;
+      color: #0f0;
+      border: 1px solid #444;
+    }
+
+    #editor label {
+      display: inline-block;
+      width: 90px;
+    }
+
+    button {
+      cursor: pointer;
+      margin-top: 6px;
+      background: #222;
+      color: #fff;
+      border: 1px solid #555;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    button:hover {
+      background: #444;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div>Health: <span id="health">100</span></div>
+    <div>Points: <span id="points">0</span></div>
+    <div>Round: <span id="round">1</span></div>
+    <div>Enemies Left: <span id="enemiesLeft">0</span></div>
+    <div style="margin-top:6px; font-size:11px; opacity:0.8;">
+      Controls: WASD = move, Mouse = look, Click = shoot
+    </div>
+  </div>
+
+  <div id="editor">
+    <strong>Content Creator / Editor</strong>
+    <div style="margin-top: 6px;">
+      <label>Count</label>
+      <input id="enemyCount" type="number" value="5" />
+    </div>
+    <div>
+      <label>HP</label>
+      <input id="enemyHP" type="number" value="20" />
+    </div>
+    <div>
+      <label>Speed</label>
+      <input id="enemySpeed" type="number" value="0.03" step="0.01" />
+    </div>
+    <div>
+      <label>Spread</label>
+      <input id="enemySpread" type="number" value="20" />
+    </div>
+    <button id="spawnBtn">Spawn Custom Wave</button>
+    <button id="nextRoundBtn">Next Round</button>
+  </div>
+
+  <!-- Three.js from CDN -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+
+  <script>
+    // =========================
+    // BASIC THREE.JS SETUP
+    // =========================
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
+    camera.position.set(0, 1.6, 5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // =========================
+    // LIGHTS
+    // =========================
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5,10,5);
+    scene.add(dirLight);
+
+    // =========================
+    // FLOOR
+    // =========================
+    const floorGeo = new THREE.PlaneGeometry(200, 200);
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    scene.add(floor);
+
+    // =========================
+    // PLAYER (for reference)
+    // =========================
+    const playerGeo = new THREE.BoxGeometry(0.5, 1.6, 0.5);
+    const playerMat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    const playerMesh = new THREE.Mesh(playerGeo, playerMat);
+    playerMesh.position.set(0, 0.8, 0);
+    scene.add(playerMesh);
+
+    // =========================
+    // GAME STATE
+    // =========================
+    let health = 100;
+    let points = 0;
+    let round = 1;
+
+    const healthEl = document.getElementById('health');
+    const pointsEl = document.getElementById('points');
+    const roundEl = document.getElementById('round');
+    const enemiesLeftEl = document.getElementById('enemiesLeft');
+
+    function updateUI() {
+      healthEl.textContent = Math.max(0, Math.floor(health));
+      pointsEl.textContent = points;
+      roundEl.textContent = round;
+      enemiesLeftEl.textContent = enemies.length;
+    }
+
+    const enemies = [];
+    const bullets = [];
+
+    // =========================
+    // ENEMY SPAWNING
+    // =========================
+    function createEnemy(hp = 20, speed = 0.03, spread = 20) {
+      const geo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+      const mat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+      const mesh = new THREE.Mesh(geo, mat);
+
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 5 + Math.random() * spread;
+      mesh.position.set(
+        Math.cos(angle) * radius,
+        0.4,
+        Math.sin(angle) * radius
+      );
+
+      scene.add(mesh);
+
+      return {
+        mesh,
+        hp,
+        speed
+      };
+    }
+
+    function spawnWave(count, hp, speed, spread) {
+      for (let i = 0; i < count; i++) {
+        enemies.push(createEnemy(hp, speed, spread));
+      }
+      updateUI();
+    }
+
+    // initial wave
+    spawnWave(5, 20, 0.03, 20);
+
+    // =========================
+    // INPUT - WASD
+    // =========================
+    const keys = {};
+    window.addEventListener('keydown', (e) => {
+      keys[e.code] = true;
+    });
+    window.addEventListener('keyup', (e) => {
+      keys[e.code] = false;
+    });
+
+    const moveSpeed = 0.1;
+
+    function handleMovement() {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      dir.y = 0;
+      dir.normalize();
+
+      const right = new THREE.Vector3();
+      right.crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
+
+      if (keys['KeyW']) {
+        playerMesh.position.addScaledVector(dir, moveSpeed);
+      }
+      if (keys['KeyS']) {
+        playerMesh.position.addScaledVector(dir, -moveSpeed);
+      }
+      if (keys['KeyA']) {
+        playerMesh.position.addScaledVector(right, -moveSpeed);
+      }
+      if (keys['KeyD']) {
+        playerMesh.position.addScaledVector(right, moveSpeed);
+      }
+
+      camera.position.copy(playerMesh.position.clone().add(new THREE.Vector3(0, 0.8, 0)));
+    }
+
+    // =========================
+    // MOUSE LOOK + SHOOT
+    // =========================
+    let yaw = 0;
+    let pitch = 0;
+    const lookSpeed = 0.0025;
+
+    function updateCameraRotation() {
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch;
+    }
+
+    document.body.addEventListener('click', () => {
+      if (document.pointerLockElement !== document.body) {
+        document.body.requestPointerLock();
+      } else {
+        shoot();
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (document.pointerLockElement === document.body) {
+        yaw -= e.movementX * lookSpeed;
+        pitch -= e.movementY * lookSpeed;
+        const limit = Math.PI / 2 - 0.1;
+        pitch = Math.max(-limit, Math.min(limit, pitch));
+      }
+    });
+
+    // =========================
+    // SHOOTING - VISIBLE BULLETS
+    // =========================
+    function shoot() {
+      const origin = camera.position.clone();
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+
+      const bulletGeo = new THREE.SphereGeometry(0.05, 8, 8);
+      const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+      const bulletMesh = new THREE.Mesh(bulletGeo, bulletMat);
+
+      bulletMesh.position.copy(origin);
+      scene.add(bulletMesh);
+
+      bullets.push({
+        mesh: bulletMesh,
+        dir: direction.clone().normalize(),
+        speed: 50,
+        life: 2
+      });
+    }
+
+    function updateBullets(delta) {
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.mesh.position.addScaledVector(b.dir, b.speed * delta);
+        b.life -= delta;
+
+        // collision with enemies
+        let bulletRemoved = false;
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const enemy = enemies[j];
+          const dist = b.mesh.position.distanceTo(enemy.mesh.position);
+          if (dist < 0.6) {
+            enemy.hp -= 10;
+            if (enemy.hp <= 0) {
+              scene.remove(enemy.mesh);
+              enemies.splice(j, 1);
+              points += 10;
+            } else {
+              points += 2;
+            }
+            updateUI();
+
+            // remove bullet
+            scene.remove(b.mesh);
+            bullets.splice(i, 1);
+            bulletRemoved = true;
+            break;
+          }
+        }
+
+        if (bulletRemoved) continue;
+
+        // time-out or too far
+        if (b.life <= 0 || b.mesh.position.length() > 500) {
+          scene.remove(b.mesh);
+          bullets.splice(i, 1);
+        }
+      }
+    }
+
+    // =========================
+    // ENEMY AI
+    // =========================
+    function updateEnemies(delta) {
+      for (const enemy of enemies) {
+        const toPlayer = playerMesh.position.clone().sub(enemy.mesh.position);
+        const distance = toPlayer.length();
+        toPlayer.normalize();
+
+        enemy.mesh.position.addScaledVector(toPlayer, enemy.speed * delta * 60);
+
+        if (distance < 1) {
+          health -= 5 * delta;
+          if (health <= 0) {
+            health = 0;
+            alert('Game Over! Points: ' + points);
+
+            // reset
+            health = 100;
+            points = 0;
+            round = 1;
+
+            for (const e of enemies) {
+              scene.remove(e.mesh);
+            }
+            enemies.length = 0;
+            for (const b of bullets) {
+              scene.remove(b.mesh);
+            }
+            bullets.length = 0;
+
+            spawnWave(5, 20, 0.03, 20);
+          }
+        }
+      }
+    }
+
+    // =========================
+    // ROUNDS
+    // =========================
+    function nextRound() {
+      round++;
+      const count = 5 + round * 2;
+      const hp = 20 + round * 5;
+      const speed = 0.03 + round * 0.005;
+      const spread = 25;
+      spawnWave(count, hp, speed, spread);
+    }
+
+    // =========================
+    // CONTENT CREATOR / EDITOR
+    // =========================
+    const enemyCountInput = document.getElementById('enemyCount');
+    const enemyHPInput = document.getElementById('enemyHP');
+    const enemySpeedInput = document.getElementById('enemySpeed');
+    const enemySpreadInput = document.getElementById('enemySpread');
+
+    document.getElementById('spawnBtn').addEventListener('click', () => {
+      const count = parseInt(enemyCountInput.value, 10) || 5;
+      const hp = parseFloat(enemyHPInput.value) || 20;
+      const speed = parseFloat(enemySpeedInput.value) || 0.03;
+      const spread = parseFloat(enemySpreadInput.value) || 20;
+      spawnWave(count, hp, speed, spread);
+    });
+
+    document.getElementById('nextRoundBtn').addEventListener('click', () => {
+      nextRound();
+    });
+
+    // =========================
+    // MAIN LOOP
+    // =========================
+    let lastTime = performance.now();
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const delta = (now - lastTime) / 1000;
+      lastTime = now;
+
+      handleMovement();
+      updateEnemies(delta);
+      updateBullets(delta);
+      updateCameraRotation();
+      updateUI();
+
+      renderer.render(scene, camera);
+    }
+
+    animate(performance.now());
+  </script>
+</body>
+</html>
