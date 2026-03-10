@@ -1,2 +1,3 @@
 # ILikeLizards.github.io
-Just try it its fun
+Just try it its fun.
+Leaderboard coming soon...
