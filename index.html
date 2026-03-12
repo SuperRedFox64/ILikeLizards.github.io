@@ -224,7 +224,7 @@ window.addEventListener('keydown',(e)=>{
 keys[e.code]=true
 
 // R key triggers next round
-if(e.code === "KeyR"){
+if(e.code === "KeyR" && enemies.length === 0){
 nextRound()
 }
 
