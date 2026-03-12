@@ -219,8 +219,20 @@ updateUI()
 spawnWave(5,20,0.03,20)
 
 const keys={}
-window.addEventListener('keydown',(e)=>{keys[e.code]=true})
-window.addEventListener('keyup',(e)=>{keys[e.code]=false})
+window.addEventListener('keydown',(e)=>{
+
+keys[e.code]=true
+
+// R key triggers next round
+if(e.code === "KeyR"){
+nextRound()
+}
+
+})
+
+window.addEventListener('keyup',(e)=>{
+keys[e.code]=false
+})
 
 const moveSpeed=0.1
 
